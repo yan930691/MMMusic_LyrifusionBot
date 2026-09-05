@@ -5,7 +5,19 @@ import logging
 import asyncio
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (secrets live here, NOT in .txt files)
+# ============ Render: Create cookies.txt from Environment Variable ============
+cookies_content = os.getenv("COOKIES_CONTENT")
+if cookies_content:
+    try:
+        with open("cookies.txt", "w") as f:
+            f.write(cookies_content)
+        logging.info("✅ cookies.txt created from COOKIES_CONTENT")
+    except Exception as e:
+        logging.error(f"❌ Failed to create cookies.txt: {e}")
+else:
+    logging.warning("⚠️ COOKIES_CONTENT not found in environment variables")
+
+# ============ Load environment variables ============
 load_dotenv()
 import requests
 from pytubefix import Search, YouTube
@@ -36,7 +48,6 @@ logging.basicConfig(
 )
 
 # Monkey-patch Python 3.9's logging to accept 'once' kwarg (added in Python 3.12)
-# yt-dlp uses logging.debug(msg, once=True) internally which crashes on older Python
 for _method_name in ('debug', 'info', 'warning', 'error', 'critical'):
     _original = getattr(logging.Logger, _method_name)
     def _make_patched(orig):
@@ -59,7 +70,6 @@ from urllib.parse import quote_plus
 import sys
 
 # Auto-install Node.js on Render so yt-dlp can decipher YouTube signatures
-# yt-dlp completely fails to decrypt video URLs on latest YouTube without this JS runtime
 NODE_DIR = "node_bin"
 _NODE_VERSION = "v22.14.0"
 _NODE_URL = f"https://nodejs.org/dist/{_NODE_VERSION}/node-{_NODE_VERSION}-linux-x64.tar.xz"
@@ -207,7 +217,6 @@ class Config:
         self.DEEZER_API = "https://api.deezer.com/search"
 
     def get_token(self):
-        # Priority: .env → token.txt fallback
         token = os.getenv('TELEGRAM_BOT_TOKEN')
         if token:
             return token
@@ -219,7 +228,6 @@ class Config:
             return None
 
     def get_groq_key(self):
-        # Priority: .env → groq_key.txt fallback
         key = os.getenv('GROQ_API_KEY')
         if key:
             return key
@@ -230,7 +238,6 @@ class Config:
             return None
 
     def get_cookies_file(self):
-        # Priority: .env → cookies.txt fallback
         path = os.getenv('COOKIES_FILE', 'cookies.txt')
         if os.path.exists(path):
             return path
@@ -270,7 +277,6 @@ class AdvancedWebSearch:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
-        # Initialize DuckDuckGo if available
         self.ddgs = None
         if RUST_SEARCH_AVAILABLE:
             try:
@@ -280,17 +286,11 @@ class AdvancedWebSearch:
                 logging.error(f"DuckDuckGo initialization error: {e}")
 
     async def search_web(self, query):
-        """Advanced web search using Rust-powered DuckDuckGo and fallbacks"""
         results = []
-        # Method 1: DuckDuckGo search (Rust-powered, high accuracy)
         if self.ddgs:
             results.extend(await self.search_duckduckgo(query))
-        # Method 2: Wikipedia fallback
         results.extend(await self.search_wikipedia(query))
-        # Method 3: YouTube metadata
         results.extend(await self.search_youtube_info(query))
-        
-        # Deduplicate results
         seen = set()
         unique_results = []
         for result in results:
@@ -298,11 +298,9 @@ class AdvancedWebSearch:
             if key not in seen:
                 unique_results.append(result)
                 seen.add(key)
-        
         return unique_results[:15]
 
     async def search_duckduckgo(self, query):
-        """Search using DuckDuckGo (Rust-powered)"""
         try:
             search_queries = [
                 f'"{query}" song details artist album',
@@ -310,9 +308,8 @@ class AdvancedWebSearch:
                 f'{query} singer composer music',
                 query
             ]
-            
             results = []
-            for search_query in search_queries[:2]:  # Limit to 2 to avoid rate limits
+            for search_query in search_queries[:2]:
                 try:
                     ddg_results = list(self.ddgs.text(search_query, max_results=5))
                     for result in ddg_results:
@@ -322,22 +319,19 @@ class AdvancedWebSearch:
                             'url': result.get('href', ''),
                             'source': 'DuckDuckGo'
                         })
-                    await asyncio.sleep(0.5)  # Rate limiting
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     logging.error(f"DuckDuckGo search error for '{search_query}': {e}")
                     continue
-            
             return results[:8]
         except Exception as e:
             logging.error(f"DuckDuckGo search error: {e}")
             return []
 
     async def search_wikipedia(self, query):
-        """Search Wikipedia API"""
         try:
             search_terms = [query, f"{query} song", f"{query} bollywood", f"{query} movie"]
             results = []
-            
             for term in search_terms:
                 try:
                     api_url = "https://en.wikipedia.org/w/api.php"
@@ -348,7 +342,6 @@ class AdvancedWebSearch:
                         'format': 'json',
                         'srlimit': 3
                     }
-                    
                     response = self.session.get(api_url, params=params, timeout=8)
                     if response.status_code == 200:
                         data = response.json()
@@ -365,19 +358,16 @@ class AdvancedWebSearch:
                                     })
                             except:
                                 continue
-                    
                     if results:
                         break
                 except Exception as e:
                     continue
-            
             return results[:5]
         except Exception as e:
             logging.error(f"Wikipedia search error: {e}")
             return []
 
     async def search_youtube_info(self, query):
-        """Get YouTube metadata"""
         try:
             s = Search(query)
             results = []
@@ -394,11 +384,8 @@ class AdvancedWebSearch:
             return []
 
     async def search_jiosaavn_web(self, query):
-        """Search JioSaavn website directly"""
         try:
-            # Search JioSaavn site specifically
             jiosaavn_query = f"site:jiosaavn.com {query}"
-            
             results = []
             if self.ddgs:
                 try:
@@ -413,14 +400,12 @@ class AdvancedWebSearch:
                             })
                 except Exception as e:
                     logging.error(f"JioSaavn search error: {e}")
-            
             return results[:3]
         except Exception as e:
             logging.error(f"JioSaavn web search error: {e}")
             return []
 
     async def scrape_jiosaavn_page(self, url):
-        """Scrape JioSaavn page content"""
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -429,26 +414,16 @@ class AdvancedWebSearch:
                 'Accept-Encoding': 'gzip, deflate',
                 'Connection': 'keep-alive',
             }
-            
             response = self.session.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
-                # Extract text content from HTML
                 soup = BeautifulSoup(response.content, 'html.parser')
-                
-                # Remove script and style elements
                 for script in soup(["script", "style"]):
                     script.decompose()
-                
-                # Get text content
                 text_content = soup.get_text()
-                
-                # Clean up whitespace
                 lines = (line.strip() for line in text_content.splitlines())
                 chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
                 text = ' '.join(chunk for chunk in chunks if chunk)
-                
-                return text[:4000]  # Limit for Groq processing
-                
+                return text[:4000]
         except Exception as e:
             logging.error(f"JioSaavn scraping error: {e}")
             return None
@@ -458,7 +433,6 @@ class AIMetadataFetcher:
     def __init__(self, groq_client, web_search):
         self.groq_client = groq_client
         self.web_search = web_search
-        # Enhanced known songs database
         self.known_songs = {
             'humne ghar chhoda hai dil movie': {
                 'title': 'Humne Ghar Chhoda Hai',
@@ -499,30 +473,23 @@ class AIMetadataFetcher:
         }
 
     async def search_with_ai(self, query):
-        """AI-powered metadata search with JioSaavn priority"""
         try:
-            # Step 1: Check known songs database
             query_lower = query.lower().strip()
             if query_lower in self.known_songs:
                 logging.info(f"Found in database: {query}")
                 return self.known_songs[query_lower]
 
-            # Step 2: Try JioSaavn web scraping first (NEW!)
             jiosaavn_metadata = await self.search_jiosaavn_with_ai(query)
             if jiosaavn_metadata and jiosaavn_metadata.get('confidence', 0) > 0.7:
                 logging.info(f"Found via JioSaavn scraping: {jiosaavn_metadata}")
                 return jiosaavn_metadata
 
-            # Step 3: Fall back to general web search
             search_results = await self.web_search.search_web(query)
-            
-            # Step 4: AI analysis if available
             if self.groq_client and search_results:
                 ai_metadata = await self.ai_analyze_metadata(query, search_results)
                 if ai_metadata and ai_metadata.get('confidence', 0) > 0.5:
                     return ai_metadata
 
-            # Step 5: Enhanced pattern matching
             return await self.enhanced_pattern_matching(query, search_results)
 
         except Exception as e:
@@ -530,17 +497,16 @@ class AIMetadataFetcher:
             return self.basic_fallback(query)
 
     async def ai_analyze_metadata(self, query, search_results):
-     """AI analysis of search results"""
-     try:
-        if not search_results:
-            return None
+        try:
+            if not search_results:
+                return None
 
-        context = "\n".join([
-            f"Title: {result.get('title', '')}\nContent: {result.get('snippet', '')}\n---"
-            for result in search_results[:6]
-        ])
+            context = "\n".join([
+                f"Title: {result.get('title', '')}\nContent: {result.get('snippet', '')}\n---"
+                for result in search_results[:6]
+            ])
 
-        prompt = f"""Analyze these search results for the song: "{query}"
+            prompt = f"""Analyze these search results for the song: "{query}"
 
 Search Results:
 {context}
@@ -556,43 +522,37 @@ Extract accurate metadata. Rules:
 Respond with ONLY this JSON:
 {{"title": "Song Title", "artist": "Singer Name(s)", "album": "Album/Movie (Year)", "confidence": 0.0-1.0}}"""
 
-        response = self.groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Extract music metadata. Respond only with valid JSON. Pay attention to specific movie names mentioned in queries."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=150
-        )
+            response = self.groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": "Extract music metadata. Respond only with valid JSON. Pay attention to specific movie names mentioned in queries."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=150
+            )
 
-        ai_response = response.choices[0].message.content.strip()
-        
-        # Clean response
-        if ai_response.startswith('```'):
-            ai_response = re.sub(r'```')
-        if ai_response.endswith('```'):
-            ai_response = ai_response[:-3].strip()
+            ai_response = response.choices[0].message.content.strip()
+            if ai_response.startswith('```'):
+                ai_response = re.sub(r'```(json)?', '', ai_response).strip()
+            if ai_response.endswith('```'):
+                ai_response = ai_response[:-3].strip()
 
-        metadata = json.loads(ai_response)
-        
-        if all(key in metadata for key in ['title', 'artist', 'album', 'confidence']):
-            logging.info(f"AI metadata: {metadata}")
-            return metadata
+            metadata = json.loads(ai_response)
+            if all(key in metadata for key in ['title', 'artist', 'album', 'confidence']):
+                logging.info(f"AI metadata: {metadata}")
+                return metadata
 
-     except Exception as e:
-        logging.error(f"AI analysis error: {e}")
-        return None
-
+        except Exception as e:
+            logging.error(f"AI analysis error: {e}")
+            return None
 
     async def enhanced_pattern_matching(self, query, search_results):
-        """Enhanced pattern matching"""
         context_text = " ".join([
             result.get('title', '') + " " + result.get('snippet', '')
             for result in search_results
         ]).lower()
 
-        # Pattern matching
         patterns = [
             (r'(.+?)\s+from\s+(.+?)\s+movie', lambda m: (m.group(1).strip(), m.group(2).strip())),
             (r'(.+?)\s+(.+?)\s+movie', lambda m: (m.group(1).strip(), m.group(2).strip())),
@@ -603,14 +563,11 @@ Respond with ONLY this JSON:
             match = re.search(pattern, query, re.IGNORECASE)
             if match:
                 song_name, movie_name = extractor(match)
-                # Extract additional info from context
                 artist = self.extract_artist_from_context(context_text, song_name)
                 year = self.extract_year_from_context(context_text, movie_name)
-                
                 album = movie_name.title()
                 if year:
                     album = f"{album} ({year})"
-                
                 return {
                     'title': song_name.title(),
                     'artist': artist or 'Various Artists',
@@ -621,13 +578,11 @@ Respond with ONLY this JSON:
         return self.basic_fallback(query)
 
     def extract_artist_from_context(self, context, song_name):
-        """Extract artist from context"""
         patterns = [
             rf'{re.escape(song_name.lower())}.*?sung by ([^.,\n]+)',
             rf'{re.escape(song_name.lower())}.*?singer[s]?\s*:?\s*([^.,\n]+)',
             rf'performed by ([^.,\n]+)',
         ]
-
         for pattern in patterns:
             match = re.search(pattern, context, re.IGNORECASE)
             if match:
@@ -635,15 +590,12 @@ Respond with ONLY this JSON:
         return None
 
     def extract_year_from_context(self, context, movie_name):
-        """Extract year from context"""
         if not movie_name:
             return None
-        
         patterns = [
             rf'{re.escape(movie_name.lower())}.*?(19\d{{2}}|20\d{{2}})',
             rf'(19\d{{2}}|20\d{{2}}).*?{re.escape(movie_name.lower())}',
         ]
-
         for pattern in patterns:
             match = re.search(pattern, context, re.IGNORECASE)
             if match:
@@ -651,7 +603,6 @@ Respond with ONLY this JSON:
         return None
 
     def basic_fallback(self, query):
-        """Basic fallback"""
         return {
             'title': query.title(),
             'artist': 'Various Artists',
@@ -660,33 +611,22 @@ Respond with ONLY this JSON:
         }
 
     async def search_jiosaavn_with_ai(self, query):
-     """Search JioSaavn with AI-powered scraping"""
-     try:
-        # Step 1: Search JioSaavn website
-        jiosaavn_results = await self.web_search.search_jiosaavn_web(query)
-        
-        if not jiosaavn_results:
+        try:
+            jiosaavn_results = await self.web_search.search_jiosaavn_web(query)
+            if not jiosaavn_results:
+                return None
+            best_result = jiosaavn_results[0]
+            page_content = await self.web_search.scrape_jiosaavn_page(best_result['url'])
+            if not page_content:
+                return None
+            return await self.ai_extract_jiosaavn_metadata(query, page_content, best_result)
+        except Exception as e:
+            logging.error(f"JioSaavn AI search error: {e}")
             return None
-            
-        # Step 2: Scrape the most relevant JioSaavn page
-        best_result = jiosaavn_results[0]  # ✅ FIXED: Get first result from list
-        page_content = await self.web_search.scrape_jiosaavn_page(best_result['url'])
-        
-        if not page_content:
-            return None
-            
-        # Step 3: Use Groq AI to extract metadata
-        return await self.ai_extract_jiosaavn_metadata(query, page_content, best_result)
-        
-     except Exception as e:
-        logging.error(f"JioSaavn AI search error: {e}")
-        return None
-
 
     async def ai_extract_jiosaavn_metadata(self, query, page_content, result_info):
-     """Use Groq AI to extract metadata from JioSaavn page"""
-     try:
-        prompt = f"""Extract song metadata from this JioSaavn page content for the query: "{query}"
+        try:
+            prompt = f"""Extract song metadata from this JioSaavn page content for the query: "{query}"
 
 Page Content:
 {page_content}
@@ -704,36 +644,31 @@ Instructions:
 Respond with ONLY this JSON:
 {{"title": "Exact Song Title", "artist": "Singer Name(s)", "album": "Album/Movie (Year)", "confidence": 0.0-1.0, "source": "JioSaavn"}}"""
 
-        if not self.groq_client:
+            if not self.groq_client:
+                return None
+            response = self.groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": "Extract music metadata from JioSaavn page content. Respond only with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=200
+            )
+
+            ai_response = response.choices[0].message.content.strip()
+            if ai_response.startswith('```'):
+                ai_response = re.sub(r'```(json)?', '', ai_response).strip()
+            if ai_response.endswith('```'):
+                ai_response = ai_response[:-3].strip()
+
+            metadata = json.loads(ai_response)
+            if all(key in metadata for key in ['title', 'artist', 'album', 'confidence']):
+                logging.info(f"JioSaavn AI metadata: {metadata}")
+                return metadata
+        except Exception as e:
+            logging.error(f"JioSaavn AI extraction error: {e}")
             return None
-            
-        response = self.groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Extract music metadata from JioSaavn page content. Respond only with valid JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=200
-        )
-
-        ai_response = response.choices[0].message.content.strip()  # ✅ FIXED: Added [0]
-        
-        # Clean response
-        if ai_response.startswith('```'):
-            ai_response = re.sub(r'```(json)?', '', ai_response).strip()
-        if ai_response.endswith('```'):
-            ai_response = ai_response[:-3].strip()
-
-        metadata = json.loads(ai_response)
-        
-        if all(key in metadata for key in ['title', 'artist', 'album', 'confidence']):
-            logging.info(f"JioSaavn AI metadata: {metadata}")
-            return metadata
-            
-     except Exception as e:
-        logging.error(f"JioSaavn AI extraction error: {e}")
-        return None
 
 # Initialize components
 web_search = AdvancedWebSearch()
@@ -741,22 +676,18 @@ ai_fetcher = AIMetadataFetcher(groq_client, web_search)
 
 # ================== METADATA PARSING ================== #
 async def clean_and_parse_metadata(original_query, youtube_title=None, youtube_uploader=None):
-    """AI-powered metadata parsing"""
     logging.info(f"Parsing metadata for: '{original_query}'")
-    
     try:
         ai_metadata = await ai_fetcher.search_with_ai(original_query)
         if ai_metadata:
             logging.info(f"Metadata result: {ai_metadata}")
             return ai_metadata
-        
         return {
             'title': original_query.title(),
             'artist': 'Various Artists',
             'album': 'Unknown Album',
             'confidence': 0.2
         }
-
     except Exception as e:
         logging.error(f"Metadata parsing error: {e}")
         return {
@@ -768,13 +699,11 @@ async def clean_and_parse_metadata(original_query, youtube_title=None, youtube_u
 
 # ================== FILE MANAGEMENT ================== #
 def setup_directories():
-    """Setup directories"""
     directories = ['downloads', 'processed', 'covers']
     for directory in directories:
         os.makedirs(directory, exist_ok=True)
 
 async def cleanup_user_files(user_data):
-    """Cleanup temporary files"""
     files_to_clean = ['file_path', 'cover_path']
     for file_key in files_to_clean:
         if file_key in user_data:
@@ -787,26 +716,26 @@ async def cleanup_user_files(user_data):
 
 setup_directories()
 
-# ================== COMMAND HANDLERS ================== #
+# ================== COMMAND HANDLERS (မြန်မာလို) ================== #
 @dp.message(Command("start"))
 async def start_command(message: types.Message, state: FSMContext):
     user_data = await state.get_data()
     await cleanup_user_files(user_data)
     await state.clear()
     
-    ai_status = "Enabled" if groq_client else "Disabled (Add Groq API key)"
+    ai_status = "ဖွင့်ထားပြီ" if groq_client else "ပိတ်ထားပါတယ် (Groq API Key ထည့်ပါ)"
     welcome_text = (
-        "🎵 *Welcome to AI-Powered Music Assistant!* 🎵\n\n"
-        "Download songs with embedded lyrics and metadata for Samsung Music Player.\n\n"
-        "✨ *How it works:*\n"
-        "1. Send song name (e.g., 'Humne ghar chhoda hai Dil movie')\n"
-        "2. AI extracts accurate metadata\n"
-        "3. Confirm cover art\n"
-        "4. Send lyrics\n"
-        "5. Get perfectly tagged MP3!\n\n"
-        " *Use /help if you are confused*\n"
-        " *DM : @Ri5h11 For any issues regarding the bot*\n"
-        "🚀 *Send a song name to begin!*"
+        "🎵 **AI Music Assistant မှ ကြိုဆိုပါတယ်!** 🎵\n\n"
+        "သီချင်းတွေကို စာသားနဲ့အတူ Samsung Music Player အတွက် ဒေါင်းလုဒ်ရယူနိုင်ပါတယ်။\n\n"
+        "✨ **ဘယ်လိုအလုပ်လုပ်လဲ:**\n"
+        "1. သီချင်းနာမည်ပို့ပါ (ဥပမာ - 'Humne ghar chhoda hai Dil movie')\n"
+        "2. AI က တိကျတဲ့ သီချင်းအချက်အလက်တွေကို ရှာဖွေပေးမယ်\n"
+        "3. ကာဗာပုံ အတည်ပြုပါ\n"
+        "4. စာသားပို့ပါ\n"
+        "5. ပြီးပြည့်စုံတဲ့ MP3 ကို ရရှိမယ်!\n\n"
+        " *အခက်အခဲရှိရင် /help ကိုသုံးပါ*\n"
+        " *DM : @Ri5h11 ကို အကူအညီအတွက် ဆက်သွယ်ပါ*\n"
+        "🚀 **စတင်ရန် သီချင်းနာမည်ပို့ပါ!**"
     )
     
     await message.answer(welcome_text, parse_mode="Markdown")
@@ -819,18 +748,18 @@ async def help_command(message: types.Message, state: FSMContext):
     await state.clear()
     
     help_text = (
-        "🆘 *AI Music Assistant Help*\n\n"
-        "📋 *Usage:*\n"
-        "1. Send song name\n"
-        "2. AI searches and extracts metadata\n"
-        "3. Confirm cover art\n"
-        "4. Send lyrics\n"
-        "5. Get tagged MP3!\n\n"
-        "💡 *Examples:*\n"
+        "🆘 **AI Music Assistant အကူအညီ**\n\n"
+        "📋 **အသုံးပြုပုံ:**\n"
+        "1. သီချင်းနာမည်ပို့ပါ\n"
+        "2. AI က ရှာဖွေပြီး အချက်အလက်တွေကို ထုတ်ယူမယ်\n"
+        "3. ကာဗာပုံ အတည်ပြုပါ\n"
+        "4. စာသားပို့ပါ\n"
+        "5. ပြီးပြည့်စုံတဲ့ MP3 ကို ရရှိမယ်!\n\n"
+        "💡 **ဥပမာများ:**\n"
         "- `Humne ghar chhoda hai Dil movie`\n"
         "- `Tujhe dekha to ye jana sanam DDLJ`\n"
         "- `Kal ho naa ho`\n\n"
-        "Contact: [@Ri5h11](https://t.me/Ri5h11)"
+        "ဆက်သွယ်ရန်: [@Ri5h11](https://t.me/Ri5h11)"
     )
     
     await message.answer(help_text, parse_mode="Markdown", disable_web_page_preview=True)
@@ -839,27 +768,27 @@ async def help_command(message: types.Message, state: FSMContext):
 async def cancel_command(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state is None:
-        await message.answer("ℹ️ No active operation to cancel.")
+        await message.answer("ℹ️ လုပ်ဆောင်မှုမရှိပါ။")
         return
     
     user_data = await state.get_data()
     await cleanup_user_files(user_data)
     await state.clear()
-    await message.answer("❌ Operation cancelled. Use /start to begin again.")
+    await message.answer("❌ လုပ်ဆောင်မှုကို ပယ်ဖျက်လိုက်ပါပြီ။ ပြန်စရန် /start ကိုသုံးပါ။")
 
-# ================== SONG PROCESSING ================== #
+# ================== SONG PROCESSING (မြန်မာလို) ================== #
 @dp.message(MusicStates.waiting_song)
 async def handle_song_request(message: types.Message, state: FSMContext):
     if message.text and message.text.startswith('/'):
         return
 
     if not message.text:
-        await message.answer("❌ Please send a text message with the song name.")
+        await message.answer("❌ ကျေးဇူးပြု၍ သီချင်းနာမည်ကို စာသားအနေနဲ့ ပို့ပါ။")
         return
 
     song_query = message.text.strip()
     if len(song_query) < 3:
-        await message.answer("❌ Please enter a longer song name.")
+        await message.answer("❌ ကျေးဇူးပြု၍ အနည်းဆုံး စာလုံး ၃ လုံးထက်ပိုတဲ့ နာမည်ကို ရိုက်ထည့်ပါ။")
         return
 
     await state.update_data(song_query=song_query, cover_attempts=0)
@@ -869,13 +798,10 @@ async def handle_song_request(message: types.Message, state: FSMContext):
         search_methods.append("AI Analysis")
     search_methods.extend(["Web Search", "Database", "Pattern Matching"])
     
-    search_msg = await message.answer(f"🔍 Searching '{song_query}' using {' + '.join(search_methods)}...")
+    search_msg = await message.answer(f"🔍 '{song_query}' ကို {' + '.join(search_methods)} နည်းလမ်းတွေနဲ့ ရှာဖွေနေပါပြီ...")
 
     try:
-        # Get AI metadata first
         ai_metadata = await clean_and_parse_metadata(song_query)
-        
-        # Search for cover art from APIs
         cover_search_query = f"{ai_metadata['title']} {ai_metadata['artist']} {ai_metadata['album']}"
         cover_url, cover_metadata = await search_cover_art(cover_search_query)
         
@@ -884,29 +810,28 @@ async def handle_song_request(message: types.Message, state: FSMContext):
 
         await bot.delete_message(message.chat.id, search_msg.message_id)
         
-        # If API cover found, show it
         if cover_url:
             cover_path = await download_and_process_cover(cover_url)
             if cover_path:
                 confidence = ai_metadata.get('confidence', 0)
-                confidence_indicator = "High" if confidence >= 0.8 else "Medium" if confidence >= 0.5 else "Low"
+                confidence_indicator = "မြင့်မားသည်" if confidence >= 0.8 else "အလယ်အလတ်" if confidence >= 0.5 else "နိမ့်သည်"
                 
                 with open(cover_path, 'rb') as photo_file:
                     photo_data = photo_file.read()
 
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Yes", callback_data="cover_yes"),
-                     InlineKeyboardButton(text="❌ No", callback_data="cover_no")]
+                    [InlineKeyboardButton(text="✅ ဟုတ်ကဲ့", callback_data="cover_yes"),
+                     InlineKeyboardButton(text="❌ မဟုတ်ဘူး", callback_data="cover_no")]
                 ])
 
                 await message.answer_photo(
                     photo=BufferedInputFile(photo_data, filename="cover.jpg"),
                     caption=(
-                        f"🎨 **Is this the correct cover?**\n\n"
-                        f"**Confidence:** {confidence_indicator}\n"
-                        f"**Title:** {ai_metadata['title']}\n"
-                        f"**Artist:** {ai_metadata['artist']}\n"
-                        f"**Album:** {ai_metadata['album']}"
+                        f"🎨 **ဒီကာဗာပုံ မှန်ကန်ပါသလား?**\n\n"
+                        f"**ယုံကြည်မှုအဆင့်:** {confidence_indicator}\n"
+                        f"**ခေါင်းစဉ်:** {ai_metadata['title']}\n"
+                        f"**အဆိုတော်:** {ai_metadata['artist']}\n"
+                        f"**အယ်လ်ဘမ်:** {ai_metadata['album']}"
                     ),
                     reply_markup=keyboard,
                     parse_mode="Markdown"
@@ -917,44 +842,40 @@ async def handle_song_request(message: types.Message, state: FSMContext):
                 await state.set_state(MusicStates.confirm_cover)
                 return
 
-        # NO API COVER FOUND - Download video and use its thumbnail
-        await message.answer(f"🎵 No cover art found in databases. Getting YouTube thumbnail...")
+        await message.answer(f"🎵 ဒေတာဘေ့စ်မှာ ကာဗာပုံမတွေ့ပါ။ YouTube မှ ရယူနေပါပြီ...")
         
-        # Download the video first to get its thumbnail
         download_query = f"{ai_metadata['title']} {ai_metadata['artist']} song"
         try:
             file_path, thumbnail_url, raw_metadata = await download_audio(download_query)
             
             if thumbnail_url:
-                # Process the YouTube thumbnail as cover
                 cover_path = await download_and_process_cover(thumbnail_url)
                 if cover_path:
                     confidence = ai_metadata.get('confidence', 0)
-                    confidence_indicator = "High" if confidence >= 0.8 else "Medium" if confidence >= 0.5 else "Low"
+                    confidence_indicator = "မြင့်မားသည်" if confidence >= 0.8 else "အလယ်အလတ်" if confidence >= 0.5 else "နိမ့်သည်"
                     
                     with open(cover_path, 'rb') as photo_file:
                         photo_data = photo_file.read()
 
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="✅ Yes", callback_data="cover_yes"),
-                         InlineKeyboardButton(text="❌ No", callback_data="cover_no")]
+                        [InlineKeyboardButton(text="✅ ဟုတ်ကဲ့", callback_data="cover_yes"),
+                         InlineKeyboardButton(text="❌ မဟုတ်ဘူး", callback_data="cover_no")]
                     ])
 
                     await message.answer_photo(
                         photo=BufferedInputFile(photo_data, filename="youtube_cover.jpg"),
                         caption=(
-                            f"🎵 **YouTube thumbnail as cover**\n\n"
-                            f"**Confidence:** {confidence_indicator}\n"
-                            f"**Title:** {ai_metadata['title']}\n"
-                            f"**Artist:** {ai_metadata['artist']}\n"
-                            f"**Album:** {ai_metadata['album']}\n\n"
-                            f"✅ Audio already downloaded!"
+                            f"🎵 **YouTube ကာဗာပုံကို အသုံးပြုပါမယ်**\n\n"
+                            f"**ယုံကြည်မှုအဆင့်:** {confidence_indicator}\n"
+                            f"**ခေါင်းစဉ်:** {ai_metadata['title']}\n"
+                            f"**အဆိုတော်:** {ai_metadata['artist']}\n"
+                            f"**အယ်လ်ဘမ်:** {ai_metadata['album']}\n\n"
+                            f"✅ အသံဖိုင် ဒေါင်းလုဒ်ပြီးပါပြီ!"
                         ),
                         reply_markup=keyboard,
                         parse_mode="Markdown"
                     )
 
-                    # Store everything in state including the downloaded file
                     await state.update_data(
                         cover_url=thumbnail_url, 
                         cover_path=cover_path, 
@@ -966,13 +887,12 @@ async def handle_song_request(message: types.Message, state: FSMContext):
                     await state.set_state(MusicStates.confirm_cover)
                     return
             
-            # If thumbnail processing failed, proceed without cover
             await message.answer(
-                f"⚠️ **No cover available**\n\n"
-                f"**Title:** {ai_metadata['title']}\n"
-                f"**Artist:** {ai_metadata['artist']}\n"
-                f"**Album:** {ai_metadata['album']}\n\n"
-                f"✅ Audio downloaded! Please send lyrics now."
+                f"⚠️ **ကာဗာပုံမရှိပါ**\n\n"
+                f"**ခေါင်းစဉ်:** {ai_metadata['title']}\n"
+                f"**အဆိုတော်:** {ai_metadata['artist']}\n"
+                f"**အယ်လ်ဘမ်:** {ai_metadata['album']}\n\n"
+                f"✅ အသံဖိုင် ဒေါင်းလုဒ်ပြီးပါပြီ! ကျေးဇူးပြု၍ စာသားပို့ပါ။"
             )
             
             await state.update_data(
@@ -981,14 +901,13 @@ async def handle_song_request(message: types.Message, state: FSMContext):
                 **ai_metadata
             )
             
-            # Request lyrics directly
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="❌ Cancel", callback_data="cancel")]
+                [InlineKeyboardButton(text="❌ ပယ်ဖျက်မည်", callback_data="cancel")]
             ])
 
             await message.answer(
-                f"📝 **Please send lyrics now**\n"
-                f"(Paste text or attach text file)",
+                f"📝 **ကျေးဇူးပြု၍ စာသားပို့ပါ**\n"
+                f"(စာသား သို့မဟုတ် စာသားဖိုင်ကို တွဲပို့နိုင်ပါတယ်)",
                 parse_mode="Markdown",
                 reply_markup=keyboard
             )
@@ -997,7 +916,7 @@ async def handle_song_request(message: types.Message, state: FSMContext):
             
         except Exception as download_error:
             logging.error(f"Download error: {download_error}")
-            await message.answer("❌ Download failed. Try a different song name.")
+            await message.answer("❌ ဒေါင်းလုဒ်မအောင်မြင်ပါ။ နောက်တစ်ကြိမ် စမ်းကြည့်ပါ။")
 
     except Exception as e:
         logging.error(f"Song request error: {e}")
@@ -1005,7 +924,7 @@ async def handle_song_request(message: types.Message, state: FSMContext):
             await bot.delete_message(message.chat.id, search_msg.message_id)
         except:
             pass
-        await message.answer("❌ Error occurred. Please try again.")
+        await message.answer("❌ အမှားတစ်ခုဖြစ်သွားပါပြီ။ ကျေးဇူးပြု၍ ပြန်စမ်းကြည့်ပါ။")
 
 @dp.callback_query(MusicStates.confirm_cover)
 async def handle_cover_confirmation(callback_query: types.CallbackQuery, state: FSMContext):
@@ -1014,32 +933,27 @@ async def handle_cover_confirmation(callback_query: types.CallbackQuery, state: 
     attempts = user_data.get('cover_attempts', 0)
 
     if callback_query.data == 'cover_yes':
-        await callback_query.message.edit_caption(caption="✅ Cover confirmed! Downloading song...")
+        await callback_query.message.edit_caption(caption="✅ ကာဗာပုံ အတည်ပြုပြီးပါပြီ! သီချင်းဒေါင်းလုဒ်လုပ်နေပါပြီ...")
         await download_and_request_lyrics(callback_query.message, state)
         return
 
-    # User rejected the cover
     attempts += 1
     await state.update_data(cover_attempts=attempts)
 
     if attempts < 3:
-        # Try to find alternative cover
         await callback_query.message.edit_caption(
-            caption=f"🔄 Searching for alternative cover (Attempt {attempts}/3)..."
+            caption=f"🔄 အခြားကာဗာပုံကို ရှာဖွေနေပါပြီ (အကြိမ် {attempts}/3)..."
         )
         
-        # Search for new cover with different query
         cover_search_query = f"{user_data['title']} {user_data['artist']} album art official"
         cover_url, metadata = await search_cover_art(cover_search_query)
 
         if not cover_url:
-            # Try different search terms
             cover_url, metadata = await get_youtube_cover(user_data['song_query'])
 
         if cover_url:
             cover_path = await download_and_process_cover(cover_url)
             if cover_path:
-                # Clean up old cover file
                 old_cover = user_data.get('cover_path')
                 if old_cover and os.path.exists(old_cover):
                     try:
@@ -1047,20 +961,19 @@ async def handle_cover_confirmation(callback_query: types.CallbackQuery, state: 
                     except:
                         pass
 
-                # Show new cover option
                 with open(cover_path, 'rb') as photo_file:
                     photo_data = photo_file.read()
 
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Yes", callback_data="cover_yes"),
-                     InlineKeyboardButton(text="❌ No", callback_data="cover_no")]
+                    [InlineKeyboardButton(text="✅ ဟုတ်ကဲ့", callback_data="cover_yes"),
+                     InlineKeyboardButton(text="❌ မဟုတ်ဘူး", callback_data="cover_no")]
                 ])
 
                 await callback_query.message.answer_photo(
                     photo=BufferedInputFile(photo_data, filename="cover.jpg"),
-                    caption=f"🎨 **Is this better?** (Attempt {attempts}/3)\n\n"
-                            f"**Title:** {user_data.get('title', 'Unknown')}\n"
-                            f"**Artist:** {user_data.get('artist', 'Unknown')}\n",
+                    caption=f"🎨 **ဒီပုံ ပိုကောင်းပါသလား?** (အကြိမ် {attempts}/3)\n\n"
+                            f"**ခေါင်းစဉ်:** {user_data.get('title', 'Unknown')}\n"
+                            f"**အဆိုတော်:** {user_data.get('artist', 'Unknown')}\n",
                     reply_markup=keyboard,
                     parse_mode="Markdown"
                 )
@@ -1068,34 +981,27 @@ async def handle_cover_confirmation(callback_query: types.CallbackQuery, state: 
                 await state.update_data(cover_url=cover_url, cover_path=cover_path)
                 return
 
-        # No alternative cover found
-        await callback_query.message.answer("❌ No alternative cover found. Using YouTube thumbnail...")
+        await callback_query.message.answer("❌ အခြားကာဗာပုံမတွေ့ပါ။ YouTube ကာဗာပုံကို သုံးပါမယ်...")
         await use_youtube_thumbnail(callback_query, state)
         return
 
     else:
-        # Max attempts reached
-        await callback_query.message.answer("⏰ **Max attempts reached (3/3).** Using YouTube thumbnail...")
+        await callback_query.message.answer("⏰ **အကြိမ် ၃ ကြိမ်ထိ ရှာပြီးပါပြီ။** YouTube ကာဗာပုံကို သုံးပါမယ်...")
         await use_youtube_thumbnail(callback_query, state)
-        return
 
 async def use_youtube_thumbnail(callback_query: types.CallbackQuery, state: FSMContext):
-    """Use YouTube thumbnail as cover art and show it to user"""
     user_data = await state.get_data()
     song_query = user_data.get('song_query', '')
     download_query = user_data.get('download_query', song_query)
     
-    # Check if we already have the audio downloaded
     existing_file = user_data.get('file_path')
     original_thumbnail = user_data.get('original_thumbnail_url')
     
     if existing_file and original_thumbnail:
-        # We already have both file and thumbnail - just show the thumbnail
         logging.info(f"Reusing existing file and thumbnail: {original_thumbnail}")
         thumbnail_url = original_thumbnail
         download_needed = False
     else:
-        # Need to download to get thumbnail
         logging.info("Downloading video to get thumbnail...")
         try:
             file_path, thumbnail_url, raw_metadata = await download_audio(download_query)
@@ -1106,48 +1012,43 @@ async def use_youtube_thumbnail(callback_query: types.CallbackQuery, state: FSMC
             download_needed = False
         except Exception as e:
             logging.error(f"Download failed in thumbnail function: {e}")
-            await callback_query.message.answer("❌ Failed to download video. Please try again.")
+            await callback_query.message.answer("❌ ဒေါင်းလုဒ်မအောင်မြင်ပါ။ နောက်တစ်ကြိမ် စမ်းကြည့်ပါ။")
             return
     
     if thumbnail_url:
-        # Download and process the thumbnail
         cover_path = await download_and_process_cover(thumbnail_url)
         if cover_path:
-            # Update state with new cover
             await state.update_data(cover_url=thumbnail_url, cover_path=cover_path)
             
-            # Send the thumbnail image to user
             try:
                 with open(cover_path, 'rb') as photo_file:
                     photo_data = photo_file.read()
                 
-                status_text = "✅ Audio already downloaded!" if not download_needed else "⬇️ Downloading audio now..."
+                status_text = "✅ အသံဖိုင် ဒေါင်းလုဒ်ပြီးပါပြီ!" if not download_needed else "⬇️ အသံဖိုင် ဒေါင်းလုဒ်လုပ်နေပါပြီ..."
                 
                 await callback_query.message.answer_photo(
                     photo=BufferedInputFile(photo_data, filename="youtube_cover.jpg"),
                     caption=(
-                        f"🎵 **Using YouTube thumbnail as cover**\n\n"
-                        f"**Song:** {user_data.get('title', song_query)}\n"
-                        f"**Artist:** {user_data.get('artist', 'Various Artists')}\n"
-                        f"**Album:** {user_data.get('album', 'Unknown Album')}\n\n"
+                        f"🎵 **YouTube ကာဗာပုံကို အသုံးပြုပါမယ်**\n\n"
+                        f"**သီချင်း:** {user_data.get('title', song_query)}\n"
+                        f"**အဆိုတော်:** {user_data.get('artist', 'Various Artists')}\n"
+                        f"**အယ်လ်ဘမ်:** {user_data.get('album', 'Unknown Album')}\n\n"
                         f"{status_text}"
                     ),
                     parse_mode="Markdown"
                 )
             except Exception as e:
                 logging.error(f"Error sending YouTube thumbnail: {e}")
-                await callback_query.message.answer("✅ Using YouTube thumbnail as cover.")
+                await callback_query.message.answer("✅ YouTube ကာဗာပုံကို အသုံးပြုပါမယ်။")
             
-            # Proceed to lyrics if we have the file, otherwise download first
             if not download_needed:
-                # Request lyrics directly
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="❌ Cancel", callback_data="cancel")]
+                    [InlineKeyboardButton(text="❌ ပယ်ဖျက်မည်", callback_data="cancel")]
                 ])
 
                 await callback_query.message.answer(
-                    f"📝 **Please send lyrics now**\n"
-                    f"(Paste text or attach text file)",
+                    f"📝 **ကျေးဇူးပြု၍ စာသားပို့ပါ**\n"
+                    f"(စာသား သို့မဟုတ် စာသားဖိုင်ကို တွဲပို့နိုင်ပါတယ်)",
                     parse_mode="Markdown",
                     reply_markup=keyboard
                 )
@@ -1158,24 +1059,21 @@ async def use_youtube_thumbnail(callback_query: types.CallbackQuery, state: FSMC
         else:
             logging.error(f"Failed to process thumbnail: {thumbnail_url}")
     
-    # If no YouTube thumbnail found or processing failed
     logging.error(f"No YouTube thumbnail found for query: {song_query}")
-    await callback_query.message.answer("❌ No cover art available. Proceeding without cover.")
+    await callback_query.message.answer("❌ ကာဗာပုံမရှိပါ။ ကာဗာပုံမပါဘဲ ဆက်လုပ်ပါမယ်။")
     
-    # Clear cover data and ensure we have audio file
     await state.update_data(cover_url=None, cover_path=None)
     
     if not user_data.get('file_path'):
         await download_and_request_lyrics(callback_query.message, state, skip_cover=True)
     else:
-        # Already have file, go to lyrics
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Cancel", callback_data="cancel")]
+            [InlineKeyboardButton(text="❌ ပယ်ဖျက်မည်", callback_data="cancel")]
         ])
 
         await callback_query.message.answer(
-            f"📝 **Please send lyrics now**\n"
-            f"(Paste text or attach text file)",
+            f"📝 **ကျေးဇူးပြု၍ စာသားပို့ပါ**\n"
+            f"(စာသား သို့မဟုတ် စာသားဖိုင်ကို တွဲပို့နိုင်ပါတယ်)",
             parse_mode="Markdown",
             reply_markup=keyboard
         )
@@ -1186,15 +1084,13 @@ async def download_and_request_lyrics(message: types.Message, state: FSMContext,
     song_query = user_data['song_query']
     download_query = user_data.get('download_query', song_query)
 
-    # Check if we already have the file downloaded
     existing_file = user_data.get('file_path')
     if existing_file and os.path.exists(existing_file):
         logging.info("Using existing downloaded file")
         file_path = existing_file
         thumbnail_url = user_data.get('original_thumbnail_url')
     else:
-        # Download the file
-        dl_msg = await message.answer("⬇️ Downloading audio...")
+        dl_msg = await message.answer("⬇️ အသံဖိုင် ဒေါင်းလုဒ်လုပ်နေပါပြီ...")
         
         try:
             file_path, thumbnail_url, raw_metadata = await download_audio(download_query)
@@ -1202,7 +1098,7 @@ async def download_and_request_lyrics(message: types.Message, state: FSMContext,
         except Exception as e:
             logging.error(f"Download error: {e}")
             await bot.delete_message(message.chat.id, dl_msg.message_id)
-            await message.answer("❌ Download failed. Try a different song name.")
+            await message.answer("❌ ဒေါင်းလုဒ်မအောင်မြင်ပါ။ နောက်တစ်ကြိမ် စမ်းကြည့်ပါ။")
             return
 
     parsed_metadata = {
@@ -1211,7 +1107,6 @@ async def download_and_request_lyrics(message: types.Message, state: FSMContext,
         'album': user_data.get('album', 'Unknown Album')
     }
 
-    # Store everything in state
     await state.update_data(
         file_path=file_path,
         artist=parsed_metadata['artist'],
@@ -1220,7 +1115,6 @@ async def download_and_request_lyrics(message: types.Message, state: FSMContext,
         original_thumbnail_url=thumbnail_url
     )
 
-    # Only handle cover if skip_cover is False AND no cover is already set
     if not skip_cover and not user_data.get('cover_path') and thumbnail_url:
         cover_path = await download_and_process_cover(thumbnail_url)
         if cover_path:
@@ -1232,26 +1126,25 @@ async def download_and_request_lyrics(message: types.Message, state: FSMContext,
             await message.answer_photo(
                 photo=BufferedInputFile(photo_data, filename="cover.jpg"),
                 caption=(
-                    f"🎵 **Downloaded successfully!**\n\n"
-                    f"**Song:** {parsed_metadata['title']}\n"
-                    f"**Artist:** {parsed_metadata['artist']}\n"
-                    f"**Album:** {parsed_metadata['album']}"
+                    f"🎵 **ဒေါင်းလုဒ်အောင်မြင်ပါပြီ!**\n\n"
+                    f"**သီချင်း:** {parsed_metadata['title']}\n"
+                    f"**အဆိုတော်:** {parsed_metadata['artist']}\n"
+                    f"**အယ်လ်ဘမ်:** {parsed_metadata['album']}"
                 ),
                 parse_mode="Markdown"
             )
 
-    # Request lyrics
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Cancel", callback_data="cancel")]
+        [InlineKeyboardButton(text="❌ ပယ်ဖျက်မည်", callback_data="cancel")]
     ])
 
     await message.answer(
-        f"📥 **Ready for lyrics!**\n\n"
-        f"**Song:** {parsed_metadata['title']}\n"
-        f"**Artist:** {parsed_metadata['artist']}\n"
-        f"**Album:** {parsed_metadata['album']}\n\n"
-        f"📝 **Please send lyrics now**\n"
-        f"(Paste text or attach text file)",
+        f"📥 **စာသားအတွက် အဆင်သင့်ဖြစ်ပါပြီ!**\n\n"
+        f"**သီချင်း:** {parsed_metadata['title']}\n"
+        f"**အဆိုတော်:** {parsed_metadata['artist']}\n"
+        f"**အယ်လ်ဘမ်:** {parsed_metadata['album']}\n\n"
+        f"📝 **ကျေးဇူးပြု၍ စာသားပို့ပါ**\n"
+        f"(စာသား သို့မဟုတ် စာသားဖိုင်ကို တွဲပို့နိုင်ပါတယ်)",
         parse_mode="Markdown",
         reply_markup=keyboard
     )
@@ -1271,16 +1164,16 @@ async def handle_user_lyrics(message: types.Message, state: FSMContext):
             lyrics = file_content.read().decode('utf-8').strip()
         except Exception as e:
             logging.error(f"File read error: {e}")
-            await message.answer("Failed to read file. Please paste lyrics directly.")
+            await message.answer("ဖိုင်ဖတ်ရာမှာ အဆင်မပြေပါ။ ကျေးဇူးပြု၍ စာသားကို တိုက်ရိုက်ကူးထည့်ပါ။")
             return
     elif message.text:
         lyrics = message.text.strip()
     else:
-        await message.answer("Please send lyrics as text or text file.")
+        await message.answer("ကျေးဇူးပြု၍ စာသား သို့မဟုတ် စာသားဖိုင် တွဲပို့ပါ။")
         return
 
     if len(lyrics) < 20:
-        await message.answer("Lyrics too short. Please send complete lyrics.")
+        await message.answer("စာသားက သိပ်တိုနေပါတယ်။ ကျေးဇူးပြု၍ အပြည့်အစုံ ပို့ပါ။")
         return
 
     await process_lyrics(message, state, lyrics)
@@ -1292,11 +1185,11 @@ async def handle_lyrics_cancel(callback_query: types.CallbackQuery, state: FSMCo
         user_data = await state.get_data()
         await cleanup_user_files(user_data)
         await state.clear()
-        await callback_query.message.answer("Cancelled. Use /start to begin again.")
+        await callback_query.message.answer("လုပ်ဆောင်မှုကို ပယ်ဖျက်လိုက်ပါပြီ။ ပြန်စရန် /start ကိုသုံးပါ။")
 
 async def process_lyrics(message: types.Message, state: FSMContext, lyrics: str):
     user_data = await state.get_data()
-    processing_msg = await message.answer("🎵 Processing song...")
+    processing_msg = await message.answer("🎵 သီချင်းကို စီမံဆောင်ရွက်နေပါပြီ...")
 
     try:
         artist = user_data.get('artist', 'Various Artists')
@@ -1313,7 +1206,6 @@ async def process_lyrics(message: types.Message, state: FSMContext, lyrics: str)
             cover_path
         )
 
-        # Get file size and duration for audio metadata
         try:
             audio = MP3(final_path)
             duration = int(audio.info.length) if audio.info.length else 0
@@ -1322,10 +1214,8 @@ async def process_lyrics(message: types.Message, state: FSMContext, lyrics: str)
 
         file_size = os.path.getsize(final_path)
         
-        # Send as AUDIO instead of DOCUMENT for direct playback
-        if file_size < 50 * 1024 * 1024:  # Less than 50MB
+        if file_size < 50 * 1024 * 1024:
             try:
-                # Use cover as thumbnail if available
                 thumbnail_data = None
                 if cover_path and os.path.exists(cover_path):
                     try:
@@ -1336,7 +1226,6 @@ async def process_lyrics(message: types.Message, state: FSMContext, lyrics: str)
 
                 final_file = FSInputFile(final_path, filename=f"{title}.mp3")
                 
-                # Send as audio for direct playback in Telegram
                 await message.answer_audio(
                     audio=final_file,
                     title=title,
@@ -1344,35 +1233,32 @@ async def process_lyrics(message: types.Message, state: FSMContext, lyrics: str)
                     duration=duration,
                     thumbnail=thumbnail_data,
                     caption=(
-                        f"🎵 **{title}** by **{artist}**\n\n"
-                        f"📀 **Album:** {album}\n"
-                        f"📝 **Lyrics embedded**\n"
-                        f"🏷️ **Metadata added**\n"
-                        f"📱 **Samsung Music compatible**\n\n"
-                        f"🎧 **Tap to play directly in Telegram!**"
+                        f"🎵 **{title}** - **{artist}**\n\n"
+                        f"📀 **အယ်လ်ဘမ်:** {album}\n"
+                        f"📝 **စာသား ထည့်သွင်းပြီးပါပြီ**\n"
+                        f"🏷️ **Metadata ထည့်သွင်းပြီးပါပြီ**\n"
+                        f"📱 **Samsung Music နဲ့ သုံးလို့ရပါပြီ**\n\n"
+                        f"🎧 **Telegram မှာ တိုက်ရိုက်နားဆင်ရန် နှိပ်ပါ!**"
                     ),
                     parse_mode="Markdown"
                 )
                 
             except Exception as audio_error:
                 logging.error(f"Audio send error: {audio_error}")
-                # Fallback to document if audio fails
                 final_file = FSInputFile(final_path, filename=f"{title}.mp3")
                 await message.answer_document(
                     document=final_file,
-                    caption=f"🎵 **{title}** by **{artist}** (Download to play)",
+                    caption=f"🎵 **{title}** - **{artist}** (ဒေါင်းလုဒ်ဆွဲပြီး နားဆင်ပါ)",
                     parse_mode="Markdown"
                 )
         else:
-            # File too large for audio, send as document
             final_file = FSInputFile(final_path, filename=f"{title}.mp3")
             await message.answer_document(
                 document=final_file,
-                caption=f"🎵 **{title}** by **{artist}** (File too large for direct playback)",
+                caption=f"🎵 **{title}** - **{artist}** (ဖိုင်အရွယ်အစားကြီးလို့ Telegram မှာ တိုက်ရိုက်ဖွင့်မရပါ)",
                 parse_mode="Markdown"
             )
 
-        # Cleanup
         await cleanup_user_files(user_data)
         if os.path.exists(final_path):
             try:
@@ -1386,7 +1272,7 @@ async def process_lyrics(message: types.Message, state: FSMContext, lyrics: str)
     except Exception as e:
         logging.error(f"Processing error: {e}")
         await bot.delete_message(message.chat.id, processing_msg.message_id)
-        await message.answer("❌ Processing failed. Please try again.")
+        await message.answer("❌ စီမံဆောင်ရွက်ရာမှာ အဆင်မပြေပါ။ နောက်တစ်ကြိမ် စမ်းကြည့်ပါ။")
         await state.clear()
 
 @dp.message()
@@ -1399,15 +1285,13 @@ async def handle_general_message(message: types.Message, state: FSMContext):
             await state.set_state(MusicStates.waiting_song)
             await handle_song_request(message, state)
         else:
-            await message.answer("Use /start to begin, or /help for assistance!")
+            await message.answer("စတင်ရန် /start ကိုသုံးပါ၊ အကူအညီအတွက် /help ကိုသုံးပါ!")
 
 # ================== HELPER FUNCTIONS ================== #
 async def search_cover_art(query):
-    """Search cover art from APIs"""
     try:
         params = {'term': query, 'media': 'music', 'limit': 3}
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        
         response = requests.get(config.ITUNES_API, params=params, timeout=10, headers=headers)
         if response.status_code == 200:
             data = response.json()
@@ -1437,7 +1321,6 @@ async def search_cover_art(query):
     return None, {}
 
 async def get_youtube_cover(query):
-    """Get YouTube thumbnail"""
     try:
         s = Search(query)
         if not s.videos:
@@ -1456,9 +1339,7 @@ async def get_youtube_cover(query):
         return None, {}
 
 async def download_and_process_cover(url):
-    """Download and process cover art with enhanced error handling"""
     try:
-        # Enhanced headers to avoid blocks
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
@@ -1468,16 +1349,12 @@ async def download_and_process_cover(url):
             'Upgrade-Insecure-Requests': '1'
         }
         
-        # Try multiple approaches to download
         response = None
-        
-        # Method 1: Direct download
         try:
             response = requests.get(url, timeout=15, headers=headers, stream=True)
             logging.info(f"Thumbnail response status: {response.status_code}")
             
             if response.status_code != 200:
-                # Method 2: Try without maxresdefault (fallback to lower quality)
                 if 'maxresdefault' in url:
                     fallback_url = url.replace('maxresdefault', 'hqdefault')
                     logging.info(f"Trying fallback URL: {fallback_url}")
@@ -1491,42 +1368,29 @@ async def download_and_process_cover(url):
             logging.error(f"Network error downloading thumbnail: {e}")
             return None
 
-        # Check content type
         content_type = response.headers.get('content-type', '')
         if not content_type.startswith('image/'):
             logging.error(f"Invalid content type: {content_type} for URL: {url}")
             return None
 
-        # Read image content
         image_content = response.content
-        if len(image_content) < 1000:  # Too small to be a valid image
+        if len(image_content) < 1000:
             logging.error(f"Image too small ({len(image_content)} bytes): {url}")
             return None
 
-        # Process image with PIL
         try:
             img = Image.open(BytesIO(image_content))
-            
-            # Convert to RGB if necessary
             if img.mode in ['RGBA', 'LA', 'P']:
                 img = img.convert('RGB')
-            
-            # Resize if too large
             if img.width > 1000 or img.height > 1000:
                 img.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
-                
-            # Ensure minimum size (some music players require this)
             if img.width < 200 or img.height < 200:
                 img = img.resize((300, 300), Image.Resampling.LANCZOS)
 
-            # Save with proper directory creation
             os.makedirs('covers', exist_ok=True)
             cover_path = f"covers/{uuid.uuid4().hex}.jpg"
-            
-            # Save with optimized settings
             img.save(cover_path, format='JPEG', quality=90, optimize=True)
             
-            # Verify file was created and has content
             if os.path.exists(cover_path) and os.path.getsize(cover_path) > 1000:
                 logging.info(f"Successfully processed thumbnail: {cover_path}")
                 return cover_path
@@ -1546,11 +1410,6 @@ async def download_and_process_cover(url):
         return None
 
 async def download_audio(query):
-    """
-    Download audio using yt-dlp.
-    Layer 1: YouTube with PO Token + cookies + Node.js (highest quality, correct results)
-    Layer 2: SoundCloud fallback (zero IP blocks, but less accurate results)
-    """
     import asyncio
     import uuid
     import yt_dlp
@@ -1559,14 +1418,11 @@ async def download_audio(query):
     unique_id = uuid.uuid4().hex[:8]
     thumbnail_url = None
 
-    # Ensure downloads directory exists
     os.makedirs("downloads", exist_ok=True)
 
     outtmpl = f"downloads/{safe_query}_{unique_id}.%(ext)s"
 
     def _find_output_file(entry, safe_q, uid):
-        """4-method file finder to locate the final MP3 after yt-dlp + FFmpeg processing."""
-        # Method 1: yt-dlp's own tracking
         requested = entry.get('requested_downloads', [])
         if requested:
             final_path = requested[0].get('filepath')
@@ -1574,19 +1430,16 @@ async def download_audio(query):
                 logging.info(f"Found via requested_downloads: {final_path}")
                 return final_path
 
-        # Method 2: Expected path
         mp3_path = f"downloads/{safe_q}_{uid}.mp3"
         if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0:
             logging.info(f"Found via expected path: {mp3_path}")
             return mp3_path
             
-        # Method 3: Glob with unique_id
         for fp in glob.glob(f"downloads/{safe_q}_{uid}.*"):
             if os.path.getsize(fp) > 0:
                 logging.info(f"Found via glob: {fp}")
                 return fp
 
-        # Method 4: Newest file in downloads/
         all_files = glob.glob("downloads/*.*")
         if all_files:
             newest = max(all_files, key=os.path.getmtime)
@@ -1596,18 +1449,16 @@ async def download_audio(query):
         return None
 
     def _extract_metadata(entry, fallback_query, source_name):
-        """Extract title, artist, thumbnail from yt-dlp info dict."""
         title = entry.get('title', fallback_query)
         artist = entry.get('uploader', 'Unknown Artist')
         thumb = entry.get('thumbnail')
         meta = {'artist': artist, 'title': title, 'album': source_name}
         return title, artist, thumb, meta
 
-    # ======== LAYER 1: YouTube (PO Token + Cookies + Node.js) ========
+    # ======== LAYER 1: YouTube ========
     try:
         logging.info(f"[Layer 1] Attempting YouTube download for: {query}")
 
-        # Use yt-dlp's native YouTube search to get the most accurate result
         yt_urls = [f"ytsearch1:{query}"]
 
         yt_opts = {
@@ -1634,21 +1485,17 @@ async def download_audio(query):
                     'player_client': ['mweb', 'tv'],
                 }
             },
-            # Enable EJS challenge solver script download from GitHub
             'remote_components': ['ejs:github'],
         }
 
-        # Inject Node.js runtime for JavaScript challenge solving
         if NODE_BIN:
             yt_opts['js_runtimes'] = {'node': {'path': NODE_BIN}}
 
-        # Inject PO Token server if running (use new extractor arg name)
         if _pot_server_process is not None:
             yt_opts.setdefault('extractor_args', {})['youtubepot-bgutilhttp'] = {
                 'base_url': ['http://127.0.0.1:4416']
             }
 
-        # Pre-download the EJS challenge solver script if not already done
         try:
             import subprocess
             _ejs_check = subprocess.run(
@@ -1695,7 +1542,6 @@ async def download_audio(query):
     try:
         logging.info(f"[Layer 2] Attempting SoundCloud download for: {query}")
 
-        # Generate new unique ID for SoundCloud to avoid filename collisions
         unique_id_sc = uuid.uuid4().hex[:8]
         outtmpl_sc = f"downloads/{safe_query}_{unique_id_sc}.%(ext)s"
 
@@ -1744,7 +1590,6 @@ async def download_audio(query):
         raise Exception(f"All download layers failed for '{query}'. YouTube and SoundCloud both exhausted.")
 
 async def embed_metadata(file_path, lyrics, artist, album, title, cover_path=None):
-    """Embed metadata into MP3"""
     try:
         audio = MP3(file_path, ID3=ID3)
         
@@ -1793,12 +1638,12 @@ async def error_handler(event, exception):
     
     if hasattr(event, 'message') and event.message:
         try:
-            await event.message.answer("Unexpected error. Please try again.")
+            await event.message.answer("မမျှော်လင့်ထားတဲ့ အမှားတစ်ခုဖြစ်သွားပါပြီ။ ကျေးဇူးပြု၍ ပြန်စမ်းကြည့်ပါ။")
         except:
             pass
     elif hasattr(event, 'callback_query') and event.callback_query:
         try:
-            await event.callback_query.message.answer("Unexpected error. Please try again.")
+            await event.callback_query.message.answer("မမျှော်လင့်ထားတဲ့ အမှားတစ်ခုဖြစ်သွားပါပြီ။ ကျေးဇူးပြု၍ ပြန်စမ်းကြည့်ပါ။")
         except:
             pass
     
@@ -1806,39 +1651,27 @@ async def error_handler(event, exception):
 
 async def main():
     if os.environ.get('RENDER'):
-        # Get environment variables
         WEBHOOK_HOST = os.getenv('RENDER_EXTERNAL_URL', 'https://your-app-name.onrender.com')
         WEBHOOK_PATH = f"/webhook/{config.TOKEN}"
         WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
         
-        # Set webhook
         await bot.set_webhook(WEBHOOK_URL)
         
-        # Create aiohttp application
         app = web.Application()
-        
-        # Create handler
         webhook_requests_handler = SimpleRequestHandler(
             dispatcher=dp,
             bot=bot,
         )
-        
-        # Register webhook handler
         webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-        
-        # Setup application
         setup_application(app, dp, bot=bot)
         
-        # Add a simple health check route
         async def health_check(request):
             return web.Response(text="Bot is running!")
         
         app.router.add_get('/', health_check)
         
-        # Get port from environment (Render provides this)
         port = int(os.environ.get("PORT", 8000))
         
-        # Start server
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', port)
@@ -1847,13 +1680,11 @@ async def main():
         logging.info(f"Bot started on port {port}")
         logging.info(f"Webhook URL: {WEBHOOK_URL}")
         
-        # Keep running
         try:
             await asyncio.Event().wait()
         finally:
             await runner.cleanup()
     else:
-        # Local polling mode
         logging.info("Starting bot in local polling mode...")
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
